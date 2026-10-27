@@ -1,6 +1,33 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 
+test.describe('Onboarding step completion', () => {
+  test('confirming mapping and importing mark their steps complete on the dashboard', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Customer Info' }).click();
+    await page.getByLabel('Customer name').fill('Steps Flow Test');
+    await page.getByLabel('Industry').fill('Finance');
+    await page.getByLabel('Region').fill('NA');
+    await page.getByLabel('Contact email').fill('ops@stepsflow.example');
+    await page.getByRole('button', { name: 'Add customer' }).click();
+    await expect(page.getByTestId('intake-success')).toBeVisible();
+
+    await page.locator('.tab', { hasText: 'Data Mapping' }).click();
+    await page.getByLabel('Customer').selectOption({ label: 'Steps Flow Test' });
+    await page.getByRole('button', { name: 'Confirm mapping' }).click();
+    await expect(page.getByText('Mapping confirmed')).toBeVisible();
+
+    await page.locator('.tab', { hasText: 'Import' }).click();
+    await page.getByLabel('Customer').selectOption({ label: 'Steps Flow Test' });
+    await page.getByRole('button', { name: 'Import clients' }).click();
+    await expect(page.getByTestId('import-summary')).toBeVisible();
+
+    await page.locator('.tab', { hasText: 'Dashboard' }).click();
+    const card = page.locator('.customer-card', { hasText: 'Steps Flow Test' });
+    await expect(card.locator('.progress-bar')).toContainText('75%');
+  });
+});
+
 test.describe('Tenant setup', () => {
   test('provisions a new customer end to end and shows 50% on the dashboard', async ({ page }) => {
     await page.goto('/');

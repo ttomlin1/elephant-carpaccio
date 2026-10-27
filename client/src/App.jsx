@@ -22,6 +22,7 @@ function App() {
   const [onboardingData, setOnboardingData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [customerId, setCustomerId] = useState('');
 
   useEffect(() => {
     fetch('/api/onboarding')
@@ -71,13 +72,13 @@ function App() {
           <CustomerInfoTab />
         )}
         {activeTab === 'data-mapping' && (
-          <DataMappingTab />
+          <DataMappingTab customerId={customerId} onCustomerChange={setCustomerId} />
         )}
         {activeTab === 'tenant-setup' && (
           <TenantSetupTab />
         )}
         {activeTab === 'import' && (
-          <ImportTab />
+          <ImportTab customerId={customerId} onCustomerChange={setCustomerId} />
         )}
       </main>
     </div>
@@ -175,11 +176,35 @@ function Checklist({ steps, onNavigate }) {
   );
 }
 
-function DataMappingTab() {
+function CustomerPicker({ value, onChange }) {
+  const [customers, setCustomers] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/customers')
+      .then(res => res.json())
+      .then(list => {
+        setCustomers(list);
+        if (!value && list.length) onChange(list[0].id);
+      })
+      .catch(() => {});
+  }, []);
+
+  return (
+    <label style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', marginBottom: '16px' }}>
+      Customer
+      <select value={value} onChange={e => onChange(e.target.value)}>
+        {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function DataMappingTab({ customerId, onCustomerChange }) {
   const [preview, setPreview] = useState(null);
   const [selectedCsv, setSelectedCsv] = useState(null);
   const [savedClients, setSavedClients] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -205,6 +230,7 @@ function DataMappingTab() {
     setPreview(null);
     setSelectedCsv(null);
     setSummary(null);
+    setConfirmed(false);
     setError(null);
     if (!file) return;
     setBusy(true);
@@ -225,6 +251,20 @@ function DataMappingTab() {
     }
   }
 
+  async function confirmMapping() {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/customers/${customerId}/steps/data-mapping/complete`, { method: 'POST' });
+      await readImportResponse(response);
+      setConfirmed(true);
+    } catch (err) {
+      setError(err.message || 'Could not confirm mapping');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function importSelectedFile() {
     if (!selectedCsv) return;
     setBusy(true);
@@ -233,7 +273,7 @@ function DataMappingTab() {
       const response = await fetch('/api/import/customer-a/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csvText: selectedCsv })
+        body: JSON.stringify({ csvText: selectedCsv, customerId })
       });
       const body = await readImportResponse(response);
       setSavedClients(body.clients);
@@ -249,6 +289,7 @@ function DataMappingTab() {
     <section className="mapping-preview">
       <h2>Data Mapping</h2>
       <p>Select an ABC Accounting clients CSV to check its ID/name mapping and import its valid clients.</p>
+      <CustomerPicker value={customerId} onChange={onCustomerChange} />
       <div className="mapping-controls">
         <label htmlFor="client-csv">Client CSV</label>
         <input id="client-csv" type="file" accept=".csv,text/csv" onChange={selectFile} />
@@ -257,6 +298,7 @@ function DataMappingTab() {
         </button>
       </div>
       {error && <p role="alert" className="mapping-error">{error}</p>}
+      {confirmed && <p role="status" className="mapping-success">✓ Mapping confirmed for this customer</p>}
       {summary && <p role="status" className="mapping-success">{summary}</p>}
       {preview ? (
         <>
@@ -269,6 +311,9 @@ function DataMappingTab() {
           <p className="mapping-summary">
             {preview.totalRows} rows · {preview.readyCount} ID/name ready · {preview.errorCount} need attention
           </p>
+          <button type="button" onClick={confirmMapping} disabled={busy || !customerId || !preview.readyCount || confirmed}>
+            Confirm mapping
+          </button>
           <div className="mapping-table-container">
             <table>
               <thead><tr><th>CSV row</th><th>Client ID</th><th>Name</th><th>Result</th></tr></thead>
@@ -369,7 +414,7 @@ function CustomerInfoTab() {
   );
 }
 
-function ImportTab() {
+function ImportTab({ customerId, onCustomerChange }) {
   const [result, setResult] = useState(null);
   const [clients, setClients] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -389,7 +434,11 @@ function ImportTab() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/import/customer-a/clients', { method: 'POST' });
+      const res = await fetch('/api/import/customer-a/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId })
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setResult(data);
@@ -407,7 +456,9 @@ function ImportTab() {
       <p style={{ color: '#6b7280', marginBottom: '20px' }}>
         ABC Accounting (Customer A) — clients.csv
       </p>
-      <button className="tab active" onClick={runImport} disabled={busy}>
+      <CustomerPicker value={customerId} onChange={onCustomerChange} />
+      <br />
+      <button className="tab active" onClick={runImport} disabled={busy || !customerId}>
         {busy ? 'Importing...' : 'Import clients'}
       </button>
 
