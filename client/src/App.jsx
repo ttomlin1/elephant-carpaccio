@@ -8,6 +8,15 @@ const TABS = [
   { id: 'import', label: 'Import' }
 ];
 
+async function readImportResponse(response) {
+  const body = await response.json().catch(() => null);
+  if (!body) {
+    throw new Error(`Import service returned an unreadable response (HTTP ${response.status}). Please retry.`);
+  }
+  if (!response.ok) throw new Error(body.error || `Import request failed (HTTP ${response.status})`);
+  return body;
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [onboardingData, setOnboardingData] = useState([]);
@@ -206,8 +215,7 @@ function DataMappingTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csvText, fileName: file.name })
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error);
+      const body = await readImportResponse(response);
       setPreview(body);
       setSelectedCsv(csvText);
     } catch (err) {
@@ -227,8 +235,7 @@ function DataMappingTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csvText: selectedCsv })
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error);
+      const body = await readImportResponse(response);
       setSavedClients(body.clients);
       setSummary(`${body.imported} imported, ${body.skipped} already present, ${body.rejected.length} rejected`);
     } catch (err) {
