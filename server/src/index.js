@@ -6,6 +6,7 @@ const { filePath, previewAbcClients } = require('./mapping/abcClients');
 const { importClients } = require('./import/customerA');
 const { validateIntake, registerCustomer } = require('./intake');
 const { provisionTenant } = require('./tenantSetup');
+const { completeStep } = require('./onboardingSteps');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -102,6 +103,13 @@ app.get('/api/onboarding', (req, res) => {
   res.json(dashboard);
 });
 
+// Complete an onboarding step (e.g. data-mapping once the mapping is confirmed)
+app.post('/api/customers/:id/steps/:step/complete', (req, res) => {
+  const { error, onboarding } = completeStep(store, req.params.id, req.params.step);
+  if (error) return res.status(error.status).json({ error: error.message });
+  res.json(onboarding);
+});
+
 // All tenants with customer name (tenant setup queue)
 app.get('/api/tenants', (req, res) => {
   const customers = store.getCustomers();
@@ -141,6 +149,10 @@ app.post('/api/import/customer-a/clients', (req, res) => {
     if (selectedCsv !== undefined && (typeof selectedCsv !== 'string' || !selectedCsv.trim())) {
       return res.status(400).json({ error: 'Choose a CSV file' });
     }
+    const customerId = req.body?.customerId;
+    if (customerId && !store.getOnboardingState(customerId)) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
     const { clients, rejected } = importClients(selectedCsv);
     const existing = store.getClients();
     const existingIds = new Set(existing.map(client => client.id));
@@ -150,10 +162,15 @@ app.post('/api/import/customer-a/clients', (req, res) => {
       return true;
     });
     store.setClients([...existing, ...added]);
+    // An import counts as done once the file yielded valid clients (new or already present)
+    const onboarding = customerId && clients.length > 0
+      ? completeStep(store, customerId, 'import').onboarding
+      : undefined;
     res.json({
       imported: added.length,
       skipped: clients.length - added.length,
       rejected,
+      onboarding,
       clients: store.getClients()
     });
   } catch (error) {
